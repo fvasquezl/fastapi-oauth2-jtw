@@ -1,25 +1,27 @@
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
-from core.config import settings
+from app.core.config import settings
+from sqlalchemy.orm import Session
+from app.db.core import DBUser, NotFoundError
+from typing import Optional
 
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM
 
-fake_users_db = {
-    "johndoe": {
-        "username": "johndoe",
-        "full_name": "John Doe",
-        "email": "johndoe@example.com",
-        "hashed_password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",
-        "disabled": False,
-    }
-}
+# fake_users_db = {
+#     "johndoe": {
+#         "username": "johndoe",
+#         "full_name": "John Doe",
+#         "email": "johndoe@example.com",
+#         "hashed_password": "$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW",
+#         "disabled": False,
+#     }
+# }
 
 
 class Token(BaseModel):
@@ -36,6 +38,8 @@ class User(BaseModel):
     email: str | None = None
     full_name: str | None = None
     disabled: bool | None = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class UserInDB(User):
@@ -55,22 +59,37 @@ def get_password_hash(password):
     return pwd_context.hash(password)
 
 
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username]
-        return UserInDB(**user_dict)
+def get_user(username: str,session:Session)->DBUser:
+    db_user = session.query(DBUser).filter(DBUser.username == username).first()
+
+    if db_user in None:
+        raise NotFoundError(f"user with id {username} not found.")
+    return UserInDB(**db_user)
 
 
-def authenticate_user(fake_db, username: str, password: str):
-    user = get_user(fake_db, username)
-    if not user:
+'''
+Temp
+'''
+def create_db_user(user: UserInDB, session: Session) -> DBUser:
+    db_user = DBUser(**user.model_dump(exclude_none=True))
+    session.add(db_user)
+    session.commit()
+    session.refresh(db_user)
+
+    return db_user
+
+
+
+def authenticate_user(username: str, password: str,session:Session)->DBUser:
+    db_user = session.query(DBUser).filter(DBUser.username == username).first()
+    if not db_user:
         return False
-    if not verify_password(password, user.hashed_password):
+    if not verify_password(password, db_user.hashed_password):
         return False
-    return user
+    return db_user
 
 
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
+def create_access_token(data: dict,expires_delta: timedelta | None = None):
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
@@ -81,7 +100,8 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     return encoded_jwt
 
 
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)],session:Session)->DBUser:
+    db_user = session.query(DBUser).filter(DBUser.username == username).first()
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -95,15 +115,15 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
         token_data = TokenData(username=username)
     except JWTError:
         raise credentials_exception
-    user = get_user(fake_users_db, username=token_data.username)
+    user = get_user(db_user, username=token_data.username)
     if user is None:
         raise credentials_exception
     return user
 
 
 async def get_current_active_user(
-    current_user: Annotated[User, Depends(get_current_user)],
-):
+    current_user: Annotated[User, Depends(get_current_user)],session:Session
+)->DBUser:
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user

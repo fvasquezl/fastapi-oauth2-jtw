@@ -5,11 +5,11 @@ from fastapi.security import OAuth2PasswordRequestForm
 from app.db.user import (
     Token,
     authenticate_user,
-    fake_users_db,
+    # fake_users_db,
     create_access_token,
 )
 
-from core.config import settings
+from app.core.config import settings
 
 ACCESS_TOKEN_EXPIRE_IN_MINUTES = settings.ACCESS_TOKEN_EXPIRE_IN_MINUTES
 
@@ -23,7 +23,7 @@ router = APIRouter(
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
 ) -> Token:
-    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+    user = authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

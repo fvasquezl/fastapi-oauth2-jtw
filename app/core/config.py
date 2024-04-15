@@ -2,10 +2,8 @@ from dotenv import load_dotenv
 import os
 from pathlib import Path
 
-env_path = Path(".") / ".env"
-
+env_path = Path().cwd().parent.parent / ".env"
 load_dotenv(dotenv_path=env_path)
-print(os.getenv("ALGORITHM"))
 
 
 class Settings:
